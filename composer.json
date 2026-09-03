@@ -1,0 +1,38 @@
+{
+    "name": "xstrm/laravel-xstrm",
+    "description": "Analytics, error tracking and performance monitoring for Laravel. Privacy-first, EU-hosted.",
+    "keywords": ["laravel", "analytics", "error-tracking", "performance", "monitoring"],
+    "homepage": "https://xstrm.net",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "illuminate/contracts": "^11.0 || ^12.0",
+        "spatie/laravel-package-tools": "^1.16"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0 || ^10.0",
+        "pestphp/pest": "^3.0 || ^4.0",
+        "pestphp/pest-plugin-laravel": "^3.0 || ^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Xstrm\\Xstrm\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Xstrm\\Xstrm\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": ["Xstrm\\Xstrm\\XstrmServiceProvider"],
+            "aliases": {"Xstrm": "Xstrm\\Xstrm\\Facades\\Xstrm"}
+        }
+    },
+    "config": {
+        "allow-plugins": {"pestphp/pest-plugin": true}
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
