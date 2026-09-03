@@ -19,6 +19,10 @@ class TrackPageview
 
     public function handle(Request $request, Closure $next): Response
     {
+        // The one place that knows for certain this is an HTTP request, which
+        // the error collector needs in order to attach request context.
+        $this->xstrm->markWebRequest();
+
         return $next($request);
     }
 

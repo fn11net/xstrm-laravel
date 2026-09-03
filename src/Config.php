@@ -51,6 +51,26 @@ class Config
         return (bool) $this->get('analytics.ignore_bots', true);
     }
 
+    public function errorsEnabled(): bool
+    {
+        return $this->enabled() && (bool) $this->get('errors.enabled', true);
+    }
+
+    public function ignoredExceptions(): array
+    {
+        return (array) $this->get('errors.ignore', []);
+    }
+
+    public function sendPii(): bool
+    {
+        return (bool) $this->get('errors.send_pii', false);
+    }
+
+    public function scrubKeys(): array
+    {
+        return (array) $this->get('errors.scrub_keys', []);
+    }
+
     public function environment(): ?string
     {
         return $this->get('environment');

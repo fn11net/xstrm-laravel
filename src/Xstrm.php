@@ -21,6 +21,16 @@ class Xstrm
 
     protected ?string $traceId = null;
 
+    /**
+     * Whether this process is serving an HTTP request.
+     *
+     * Set by the middleware, because that is the only thing that actually
+     * knows. Laravel binds a Request object in console commands and queued
+     * jobs too, and runningInConsole() is true under every test runner — so
+     * neither can answer the question honestly.
+     */
+    protected bool $web = false;
+
     public function __construct(
         protected Config $config,
         protected Transport $transport,
@@ -34,6 +44,16 @@ class Xstrm
     public function traceId(): string
     {
         return $this->traceId ??= (string) Str::uuid7();
+    }
+
+    public function markWebRequest(): void
+    {
+        $this->web = true;
+    }
+
+    public function isWebRequest(): bool
+    {
+        return $this->web;
     }
 
     public function record(array $event): void
@@ -85,6 +105,7 @@ class Xstrm
         $this->events = [];
         $this->dropped = 0;
         $this->traceId = null;
+        $this->web = false;
     }
 
     public function events(): array
