@@ -2,19 +2,26 @@
 
 namespace Xstrm\Xstrm;
 
+use Illuminate\Cache\Events\CacheHit;
+use Illuminate\Cache\Events\CacheMissed;
 use Illuminate\Console\Events\CommandFinished;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 use Throwable;
 use Xstrm\Xstrm\Commands\InstallCommand;
 use Xstrm\Xstrm\Errors\ErrorCollector;
 use Xstrm\Xstrm\Errors\Frames;
-use Xstrm\Xstrm\Http\Middleware\TrackPageview;
+use Xstrm\Xstrm\Performance\Metrics;
+use Xstrm\Xstrm\Performance\PerformanceCollector;
+use Xstrm\Xstrm\Http\Middleware\CollectRequest;
 
 class XstrmServiceProvider extends PackageServiceProvider
 {
@@ -47,6 +54,14 @@ class XstrmServiceProvider extends PackageServiceProvider
             $app->make(Config::class),
             $app->make(Frames::class),
         ));
+
+        $this->app->singleton(Metrics::class, fn () => new Metrics);
+
+        $this->app->singleton(PerformanceCollector::class, fn ($app) => new PerformanceCollector(
+            $app->make(Xstrm::class),
+            $app->make(Config::class),
+            $app->make(Metrics::class),
+        ));
     }
 
     public function packageBooted(): void
@@ -55,17 +70,24 @@ class XstrmServiceProvider extends PackageServiceProvider
         try {
             $this->registerMiddleware();
             $this->registerErrorHooks();
+            $this->registerPerformanceHooks();
             $this->registerFlushHooks();
         } catch (Throwable) {
             // Boot failures disable the package rather than break the app.
         }
     }
 
+    /**
+     * Registered unconditionally.
+     *
+     * Guarding this with runningInConsole() bought nothing — a middleware
+     * cannot run without an HTTP request anyway — and it is true under every
+     * test runner, which meant the middleware was never exercised by a single
+     * test in either repository.
+     */
     protected function registerMiddleware(): void
     {
-        if (! $this->app->runningInConsole()) {
-            $this->app->make(Kernel::class)->pushMiddleware(TrackPageview::class);
-        }
+        $this->app->make(Kernel::class)->pushMiddleware(CollectRequest::class);
     }
 
     /**
@@ -110,6 +132,75 @@ class XstrmServiceProvider extends PackageServiceProvider
         });
     }
 
+    /**
+     * Counters fed by framework events. Each listener is a few integer
+     * increments — a request issuing a thousand queries fires this a thousand
+     * times, so it cannot allocate.
+     */
+    protected function registerPerformanceHooks(): void
+    {
+        $config = $this->app->make(Config::class);
+
+        if (! $config->performanceEnabled()) {
+            return;
+        }
+
+        if ($config->trackQueries()) {
+            DB::listen(function (QueryExecuted $query) use ($config) {
+                $this->metrics()?->query($query->time, $config->slowQueryMs());
+            });
+        }
+
+        if ($config->trackCache()) {
+            Event::listen(CacheHit::class, fn () => $this->metrics()?->cacheHit());
+            Event::listen(CacheMissed::class, fn () => $this->metrics()?->cacheMiss());
+        }
+
+        if ($config->trackHttp()) {
+            $this->trackOutboundHttp();
+        }
+    }
+
+    /**
+     * Outbound HTTP time, via a global middleware on Laravel's client.
+     *
+     * Only calls made through Http:: are seen. A raw cURL or Guzzle client
+     * built by hand is invisible, which is worth knowing before reading the
+     * number as "all outbound time".
+     */
+    protected function trackOutboundHttp(): void
+    {
+        Http::globalMiddleware(function (callable $handler) {
+            return function ($request, array $options) use ($handler) {
+                $startedAt = microtime(true);
+
+                return $handler($request, $options)->then(
+                    function ($response) use ($startedAt) {
+                        $this->metrics()?->http((microtime(true) - $startedAt) * 1000);
+
+                        return $response;
+                    },
+                    function ($reason) use ($startedAt) {
+                        // A call that failed still cost the visitor its time,
+                        // and a timeout is exactly the case worth seeing.
+                        $this->metrics()?->http((microtime(true) - $startedAt) * 1000);
+
+                        return \GuzzleHttp\Promise\Create::rejectionFor($reason);
+                    },
+                );
+            };
+        });
+    }
+
+    protected function metrics(): ?Metrics
+    {
+        try {
+            return $this->app->make(Metrics::class);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     protected function collector(): ?ErrorCollector
     {
         try {
@@ -139,6 +230,7 @@ class XstrmServiceProvider extends PackageServiceProvider
                 try {
                     $this->app->make(Xstrm::class)->reset();
                     $this->app->make(ErrorCollector::class)->reset();
+                    $this->app->make(PerformanceCollector::class)->reset();
                 } catch (Throwable) {
                     // no-op
                 }

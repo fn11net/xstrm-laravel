@@ -71,6 +71,36 @@ class Config
         return (array) $this->get('errors.scrub_keys', []);
     }
 
+    public function performanceEnabled(): bool
+    {
+        return $this->enabled() && (bool) $this->get('performance.enabled', true);
+    }
+
+    public function performanceSampleRate(): float
+    {
+        return (float) $this->get('performance.sample_rate', 1.0);
+    }
+
+    public function trackQueries(): bool
+    {
+        return (bool) $this->get('performance.track_queries', true);
+    }
+
+    public function trackCache(): bool
+    {
+        return (bool) $this->get('performance.track_cache', true);
+    }
+
+    public function trackHttp(): bool
+    {
+        return (bool) $this->get('performance.track_http', true);
+    }
+
+    public function slowQueryMs(): int
+    {
+        return (int) $this->get('performance.slow_query_ms', 100);
+    }
+
     public function environment(): ?string
     {
         return $this->get('environment');

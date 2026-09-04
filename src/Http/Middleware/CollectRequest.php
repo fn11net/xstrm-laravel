@@ -8,13 +8,23 @@ use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 use Xstrm\Xstrm\Bots;
 use Xstrm\Xstrm\Config;
+use Xstrm\Xstrm\Performance\PerformanceCollector;
 use Xstrm\Xstrm\Xstrm;
 
-class TrackPageview
+/**
+ * The package's single middleware: it starts the request timer, marks this as
+ * an HTTP request for the error collector, records a pageview if the response
+ * warrants one, records the transaction, and flushes.
+ *
+ * One middleware rather than three, because they all need the same terminate
+ * hook and the order between them matters.
+ */
+class CollectRequest
 {
     public function __construct(
         protected Xstrm $xstrm,
         protected Config $config,
+        protected PerformanceCollector $performance,
     ) {}
 
     public function handle(Request $request, Closure $next): Response
@@ -22,6 +32,7 @@ class TrackPageview
         // The one place that knows for certain this is an HTTP request, which
         // the error collector needs in order to attach request context.
         $this->xstrm->markWebRequest();
+        $this->performance->start();
 
         return $next($request);
     }
@@ -47,6 +58,11 @@ class TrackPageview
         } catch (Throwable) {
             // A pageview is never worth an exception in someone's app.
         }
+
+        // Every request produces a transaction, including the ones that
+        // produce no pageview — a POST that took four seconds is exactly the
+        // thing this module exists to show.
+        $this->performance->record($request, $response);
 
         // Flush unconditionally — other collectors may have recorded events on
         // a request that produced no pageview. Under Octane the shutdown
